@@ -3,7 +3,7 @@
 ---
 _Advanced use cases for Django REST Framework Model Serializers_
 
-## Part I: The basics
+# Part I: The basics
 
 In Part I, we are going to set up a few Django models for us to play with, and then set up a couple of REST APIs using
 ModelSerializers; nothing special going on here if you are already familiar with how to use DRF generic views.
@@ -46,7 +46,7 @@ class VehicleModelListCreateView(ListCreateAPIView):
 
 We can start testing these APIs.
 
-### Default Read Behavior
+## Basic read behavior
 
 We can now call the listing endpoint using:
 
@@ -73,15 +73,15 @@ and get the following response:
 ]
 ```
 
-We can make the following observations about DRF `ModelSerializer`'s default **read** behavior:
+We can make the following observations:
+> **TLDR** DRF `ModelSerializer`'s basic **read** behavior:
+> - Returns Django model attributes as they are defined on ORM model, including auto fields
+> - Returns value of appropriate type as defined by the ORM model field
+> - Includes all relations declared on the ORM model
+> - The related instances are returned as their primary keys
+> - Does not include any Django reverse relations
 
-- Returns Django model attributes as they are defined on ORM model, including auto fields
-- Returns value of appropriate type as defined by the ORM model field
-- Includes all relations declared on the ORM model
-- The related instances are returned as their primary keys
-- Does not include any Django reverse relations
-
-### Default Write Behavior
+## Basic write behavior
 
 Similarly, we can call the same endpoint to create a new instance:
 
@@ -102,15 +102,16 @@ curl --location --request POST 'http://localhost:8000/api_1/' \
 ```
 
 You can play around with this request data, and try to include some additional related fields, and make the following
-observation about DRF `ModelSerializer`'s default **write** behavior:
+observations:
 
-- Relations can be made using existing related instance primary key
-- Django reverse relations are ignored
-- Unrecognized and read-only attributes are ignored
+> **TLDR** DRF `ModelSerializer`'s basic **write** behavior:
+> - Relations can be made using existing related instance primary key
+> - Django reverse relations are ignored
+> - Unrecognized and read-only attributes are ignored
 
 ---
 
-## Part II: Include related instance data
+# Part II: Include related instance data
 
 Part II example code can be found in module [api_2](api_2).
 
@@ -122,14 +123,14 @@ class VehicleModelSerializer(ModelSerializer):
     maker = ManufacturerSerializer()
     engine_options = EngineSerializer(many=True)
     vehicle_set = VehicleSerializer(many=True)  # reverse relation 'vehicle_set'
-    engineers_responsible = EngineerSerializer(many=True, source="engineer_set.all")  # reverse relation 'engineer_set'
+    engineers_responsible = EngineerSerializer(many=True, source="engineer_set")  # reverse relation 'engineer_set'
 
     class Meta:
         model = VehicleModel
         fields = "__all__"
 ```
 
-### Reading with related instance data
+## Reading related model data using nested serializer
 
 With this serializer, we can hit the listing endpoint again. Note that the reverse relations will even work as
 long as the reverse attribute name declared on the serializer matches what is on the ORM model, or
@@ -181,29 +182,171 @@ You should see the response data containing a list of objects like the following
 }
 ```
 
-A couple of takeaways:
+> **TLDR** DRF nested serializer **read** behavior:
+> - Related instance nested serializer must be initialized with `many=True` if there are more than one instance expected
+> - Django ORM reverse relations also work if matching model attribute name or specified by `source` argument
 
-- Related instance nested serializer must be initialized with `many=True` if there are more than one instance expected
-- Reverse relation also works
+## Writing related model data using nested serialier
 
-### Writing related instance data
+I think creating and updating related instance is probably not good RESTful design, but sometimes we may be asked to do
+so because the related model may be very small.
 
-I think creating and updating related instance is probably a bad RESTful design, but sometimes we may be asked to do so
-because the related model may be very small.
+Interestingly, if we try to call the creation endpoint, DRF will complain about not sure what to do with the related
+model data.
 
-Interestingly, if we try to call the creation endpoint, the API still expects only the primary keys for constructing
-relations, the behavior is exactly the same as the serializer from Part I even though we specified serializers for
-related instances. The reverse relation data is still being ignored.
+To allow writing to related models, we will need to overwrite the `VehicleModelSerializer.to_internal_value()` method
+so that the related fields provided by the client is mapped back to related model instances:
 
-In the next part, we will talk about how to design a serializer that can handle touching related instance data.
+```python
+class VehicleModelSerializer(ModelSerializer):
+    project = ProjectSerializer()
+    maker = ManufacturerSerializer()
+    engine_options = EngineSerializer(many=True)
+    vehicle_set = VehicleSerializer(many=True, read_only=True)
+    engineers_responsible = EngineerSerializer(many=True, source="engineer_set")
 
-Takeaways:
+    def to_internal_value(self, data):
+        new_data = super().to_internal_value(data)
 
-- Related model data is only referred to using primary key even if a nested serializer is used
-- Django reverse relations are still ignored in write operation
+        new_data["maker"] = Manufacturer.objects.get(**new_data["maker"])
+
+        engine_options_q = Q()
+        for engine in new_data["engine_options"]:
+            engine_options_q |= Q(**engine)
+        new_data["engine_options"] = Engine.objects.filter(engine_options_q)
+
+        engineer_set_q = Q()
+        for engineer in new_data["engineer_set"]:
+            engineer_set_q |= Q(**engineer)
+        new_data["engineer_set"] = Engineer.objects.filter(engineer_set_q)
+
+        return new_data
+```
+
+and with this, we can call the creation API with the following data to create a new instance of `VehicleModel` as well
+as the associated `Project` instance, relations to existing `Manufacturer`, `Engine` and `Engineer` instances will be
+made:
+
+```json
+{
+  "project": {
+    "code_name": "project-d-35-roadster-3"
+  },
+  "maker": {
+    "name": "Buick"
+  },
+  "engine_options": [
+    {
+      "name": "Model D Inline-4",
+      "displacement": 2.7
+    },
+    {
+      "name": "Chevrolet Inline-4",
+      "displacement": 2.8
+    }
+  ],
+  "vehicle_set": [
+    {
+      "VIN": "A123456789",
+      "model": 1
+    }
+  ],
+  "engineers_responsible": [
+    {
+      "name": "Yoshida"
+    }
+  ],
+  "model": "Buick D-35 Roadster",
+  "year": 1917,
+  "predecessor": null
+}
+```
+
+Note that in this example, we are only handling the fields where we want the API to retrieve existing related instances,
+which are 'maker', 'engine_options', and 'engineers_responsible'. We did not handle any fields where the API may be
+required to create new instances of related model such as 'project'. (`Project` and `VehicleModel` have one-to-one
+relation, so we are pretending that one of the API requirements is that when creating a new `VehicleModel`, also
+create a `Project` at the same time).
+
+We could have created a new instance of `Project` in `.to_internal_value` method, but we elect not to do it here in case
+there is validation issue with the data from client later on, and we wouldn't want a `Project` instance to be created
+before data validation completes. Instead, we will handle related object creation by overwriting the `.create()`
+method:
+
+```python
+class VehicleModelSerializer(ModelSerializer):
+    ...  # omitted, see above
+
+    def create(self, validated_data):
+        validated_data["project"] = Project.objects.create(**validated_data.pop("project"))
+        instance = super().create(validated_data)
+        return instance
+```
+
+Now, you may have noticed that the 'vehicle_set' attribute from the serializer is not being handled, because we have
+initialized this field as a read-only field, therefore the data is stripped by the `ModelSerializer.to_internal_value()`
+method. This would be based on the specific API design decision.
+
+Similar to the handling of creation, we may be asked to handle updating of the related model as well, it can be done in
+very similar fashion by overwriting the `.update()` method:
+
+```python
+class VehicleModelSerializer(ModelSerializer):
+    ...  # omitted, see above
+
+    def update(self, instance, validated_data):
+        project_data = validated_data.pop("project", None)
+        if project_data and instance.project.code_name != project_data["code_name"]:
+            instance.project.delete()
+            validated_data["project"] = Project.objects.create(**project_data)
+        return super().update(instance, validated_data)
+
+```
+
+By now you might have noticed that you cannot update a `VehicleModel` instance with the same `Project`, but you can
+update it to new `Project` with different 'code name'. This is because `Project` model's 'code name' field has unique
+constraint, and `.to_internal_value()` will validate client data against field level validation which includes ORM
+model field arguments.
+
+If for some reason you need to allow client to specify the `Project`'s 'code name' again in
+the body (such as in the case of a 'PUT' request where you are essentially replacing the current instance), you may
+consider bypassing some of the data from `super().to_internal_value()`:
+
+```python
+class VehicleModelSerializer(ModelSerializer):
+    ...
+
+    def to_internal_value(self, data):
+        project_data = data.pop("project", None)
+        new_data = super().to_internal_value(data)
+        if project_data:
+            new_data["project"] = project_data
+        ...
+        return new_data
+```
+
+Note the project data is popped from `data` to circumvent being pushed into `super().to_internal_value()`, and then
+added back to the `new_data` before return.
+
+Some takeaways:
+> **TLDR** DRF nested serializer **write** behavior:
+> - `.to_internal_value()` method is called before `.validate()`
+> - `.to_internval_value()` method validates against field-level constraints set by ORM model fields
+> - when nesting a related model serializer as a serializer field, we need to take care of mapping them back to Django
+    ORM model instances, it is a good idea to:
+> > - Retrieve existing relations inside `.to_internal_value()`
+> > - Create/update new related instances inside `.create()`/`.update()`
 
 ---
 
-## Part III: Hoisting related model data
+# Part III: Hoisting related model data
 
-To be continued..
+Often times we are asked to design an endpoint for a particular model that includes some attributes of a related model,
+and in away that the related data appears to be attributes of this model as far as the client is concerned.
+This can be implemented in a number of different ways with DRF, but I am only going to focus on achieving two-way data
+binding - so it works consistently in both **read** and **write** operations.
+
+## Reading
+
+## Writing
+
