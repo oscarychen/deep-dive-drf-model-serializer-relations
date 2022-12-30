@@ -60,7 +60,7 @@ class VehicleModelSerializer(ModelSerializer):
 
     def update(self, instance, validated_data):
         project_data = validated_data.pop("project", None)
-        if project_data and instance.project.code_name != project_data["code_name"]:
+        if project_data is not None and instance.project.code_name != project_data["code_name"]:
             instance.project.delete()
             validated_data["project"] = Project.objects.create(**project_data)
         return super().update(instance, validated_data)

@@ -1,7 +1,8 @@
-# All About Django REST Framework Model Serializer
+# Handling complex relations with Django REST Framework ModelSerializer
 
 ---
-_Advanced use cases for Django REST Framework Model Serializers_
+_Deep dive on using Django REST Framework ModelSerializer to handle reading, creating and updating related model
+instances_
 
 # Part I: The basics
 
@@ -285,7 +286,7 @@ class VehicleModelSerializer(ModelSerializer):
 
 Now, you may have noticed that the 'vehicle_set' attribute from the serializer is not being handled, because we have
 initialized this field as a read-only field, therefore the data is stripped by the `ModelSerializer.to_internal_value()`
-method. This would be based on the specific API design decision.
+method. This would be based on the specific API design requirements.
 
 Similar to the handling of creation, we may be asked to handle updating of the related model as well, it can be done in
 very similar fashion by overwriting the `.update()` method:
@@ -296,12 +297,16 @@ class VehicleModelSerializer(ModelSerializer):
 
     def update(self, instance, validated_data):
         project_data = validated_data.pop("project", None)
-        if project_data and instance.project.code_name != project_data["code_name"]:
+        if project_data is not None and instance.project.code_name != project_data["code_name"]:
             instance.project.delete()
             validated_data["project"] = Project.objects.create(**project_data)
         return super().update(instance, validated_data)
 
 ```
+
+Note that we are checking `project_data is not None`, this may or may not be the desired behavior based on API design
+requirement. You may be asked to delete the related `Project` if the client passes `null` value or empty string, or not
+do anything with it, etc. Some requirements may not be good RESTful API design, but it can happen.
 
 By now you might have noticed that you cannot update a `VehicleModel` instance with the same `Project`, but you can
 update it to new `Project` with different 'code name'. This is because `Project` model's 'code name' field has unique
@@ -328,10 +333,18 @@ class VehicleModelSerializer(ModelSerializer):
 Note the project data is popped from `data` to circumvent being pushed into `super().to_internal_value()`, and then
 added back to the `new_data` before return.
 
+Another key thing to note is that if you put a debug breakpoint inside of the `.to_internal_value()` method, you would
+see that the `data` passed in has been changed by `super().to_internal_value(data)` (aka `new_data` in our example).
+While `data` has key 'engineers_responsible' which is how the client passes in, `new_data` change it to key
+'engineer_set'. This is one of DRF `ModelSerializer.to_internal_value()` method's responsibility: to map raw data to
+ORM field data.
+
 Some takeaways:
 > **TLDR** DRF nested serializer **write** behavior:
 > - `.to_internal_value()` method is called before `.validate()`
 > - `.to_internval_value()` method validates against field-level constraints set by ORM model fields
+> - `.to_internal_value()` method maps raw client data to ORM field data, which may change data keys if a field's name
+    is different from its `source`
 > - when nesting a related model serializer as a serializer field, we need to take care of mapping them back to Django
     ORM model instances, it is a good idea to:
 > > - Retrieve existing relations inside `.to_internal_value()`
@@ -341,12 +354,101 @@ Some takeaways:
 
 # Part III: Hoisting related model data
 
+Part III example code can be found in module [api_3](api_3).
+
 Often times we are asked to design an endpoint for a particular model that includes some attributes of a related model,
 and in away that the related data appears to be attributes of this model as far as the client is concerned.
 This can be implemented in a number of different ways with DRF, but I am only going to focus on achieving two-way data
-binding - so it works consistently in both **read** and **write** operations.
+binding - so it works consistently in both **read** and **write** operations using a single mechanism.
 
-## Reading
+## Reading related model data directly
 
-## Writing
+For this example, let's hoist the related `Project` instance's `code_name` attribute to our `VehicleModel` serializer
+so that it would appears as an attribute of the `VehicleModel`. We are going to use a custom field:
+
+```python
+class ProjectCodeNameField(RelatedField):
+    queryset = Project.objects.all()
+
+    def to_internal_value(self, data):
+        return data
+
+    def to_representation(self, value):
+        return getattr(value, "code_name")
+```
+
+and now we can use this field on our serializer for `VehicleModel`:
+
+```python
+class VehicleModelSerializer(ModelSerializer):
+    project_code_name = ProjectCodeNameField(source="project")
+
+    class Meta:
+        model = VehicleModel
+        fields = "__all__"
+```
+
+We can hit the listing endpoint again, and you should see the response containing list of `VehicleModel` objects such
+as this:
+
+```json
+{
+  "id": 1,
+  "project_code_name": "project-d-35-roadster-x1",
+  "model": "Buick D-35 Roadster2",
+  "year": 1917,
+  "project": 4,
+  "maker": 1,
+  "predecessor": null,
+  "engine_options": [
+    1,
+    2
+  ]
+}
+```
+
+where the related `Project.code_name` has been made available as 'project_code_name'.
+
+## Writing related model data directly
+
+Similar to what we did in Part II, we need to handle related model instance creation by overwriting `.create()` method:
+
+```python
+class VehicleModelSerializer(ModelSerializer):
+    maker = ManufacturerNameField()
+    project_code_name = ProjectCodeNameField(source="project")
+
+    def to_internal_value(self, data):
+        new_data = super().to_internal_value(data)
+        new_data["maker"] = Manufacturer.objects.get(name=new_data["maker"])
+        return new_data
+
+    def create(self, validated_data):
+        if validated_data.get("project"):
+            validated_data["project"] = Project.objects.create(code_name=validated_data["project"])
+        return super().create(validated_data)
+
+    class Meta:
+        model = VehicleModel
+        fields = "__all__"
+```
+
+I also intentionally added another field `maker` here to demonstrate how the it is handled a little bit
+different from `project_code_name` field. The `maker` field is pointing to the related `Manufacturer` instance's 'name',
+while the `project_code_name` is point to the related `Project` instance's 'code_name'. Just like what we did earlier in
+Part II, we are assuming the API requirement dictates that it only needs to associate the `VehicleModel` instance
+to be created with an **existing** `Manufacturer` instance, but associated with a **new** `Project` instance (because of
+the one-to-one relationship).
+
+For this reason, we are mapping the `maker` field to an existing `Manufacturer` instance inside `.to_internal_value()`,
+while creating a new `Project` instance inside the `.create()`.
+
+Some takeaways regarding accessing related model data directly:
+
+> **TLDR** DRF serializer accessing related model data:
+> - subclass `restframework.serializers.RelatedField` for accessing an attribute of a related model, this allows for
+    reading and writing using the same mechanism
+> - whenever writing to related model, we need to handle write behavior, it is a good idea to:
+> > - Retrieve existing relations inside `.to_internal_value()`
+> > - Create/update new related instances inside `.create()`/ `.update()`
 
