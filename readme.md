@@ -3,6 +3,9 @@
 ---
 _Deep dive on using Django REST Framework ModelSerializer to read, create and update model relations_
 
+[Postman](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/collection/25111927-777d6f3f-08ab-4cdd-b4ba-abf5c50648fe?ctx=documentation)
+is used for developing the APIs.
+
 # Part I: The basics
 
 In Part I, we are going to set up a few Django models for us to play with, and then set up a couple of REST APIs using
@@ -54,6 +57,10 @@ We can now call the listing endpoint using:
 curl --location --request GET 'http://localhost:8000/api_1/'
 ```
 
+_you can also use
+this [Postman example](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/request/25111927-987f0fef-d4df-4ffe-85a6-8f51fad1b421)
+._
+
 and get the following response:
 
 ```json
@@ -101,6 +108,10 @@ curl --location --request POST 'http://localhost:8000/api_1/' \
     }'
 ```
 
+you can also use
+this [Postman example](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/request/25111927-889545d1-03d0-47cd-965e-7bf49c832f26)
+.
+
 You can play around with this request data, and try to include some additional related fields, and make the following
 observations:
 
@@ -132,7 +143,9 @@ class VehicleModelSerializer(ModelSerializer):
 
 ## Reading related model data using nested serializer
 
-With this serializer, we can hit the listing endpoint again. Note that the reverse relations will even work as
+With this serializer, we can hit
+the [listing endpoint](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/request/25111927-6f367f5f-8209-4386-ad77-8ac08c8bed01)
+again. Note that the reverse relations will even work as
 long as the reverse attribute name declared on the serializer matches what is on the ORM model, or
 initialized with the `source` argument pointing to a matching ORM model attribute.
 You should see the response data containing a list of objects like the following:
@@ -223,7 +236,10 @@ class VehicleModelSerializer(ModelSerializer):
         return new_data
 ```
 
-and with this, we can call the creation API with the following data to create a new instance of `VehicleModel` as well
+and with this, we can call
+the [creation API](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/request/25111927-1e60feff-c5ea-4732-86df-049c74a99586)
+with the following data to create a new instance of `VehicleModel` as
+well
 as the associated `Project` instance, relations to existing `Manufacturer`, `Engine` and `Engineer` instances will be
 made:
 
@@ -387,7 +403,10 @@ class VehicleModelSerializer(ModelSerializer):
         fields = "__all__"
 ```
 
-We can hit the listing endpoint again, and you should see the response containing list of `VehicleModel` objects such
+We can hit
+the [listing endpoint](https://www.postman.com/quackyduck/workspace/deep-dive-drf-modelserializer-relations/request/25111927-b3a59e33-75c4-4b96-a85a-289f8a6b3d9e)
+again, and you should see the response containing list of `VehicleModel` objects
+such
 as this:
 
 ```json
