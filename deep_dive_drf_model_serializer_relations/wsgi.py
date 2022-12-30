@@ -1,5 +1,5 @@
 """
-WSGI config for all_about_drf_model_serializer project.
+WSGI config for deep_dive_drf_model_serializer_relations project.
 
 It exposes the WSGI callable as a module-level variable named ``application``.
 
@@ -11,6 +11,6 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'all_about_drf_model_serializer.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'deep_dive_drf_model_serializer_relations.settings')
 
 application = get_wsgi_application()

@@ -1,8 +1,7 @@
-# Handling complex relations with Django REST Framework ModelSerializer
+# Handling model relations with Django REST Framework ModelSerializer
 
 ---
-_Deep dive on using Django REST Framework ModelSerializer to handle reading, creating and updating related model
-instances_
+_Deep dive on using Django REST Framework ModelSerializer to read, create and update model relations_
 
 # Part I: The basics
 

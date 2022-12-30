@@ -6,7 +6,7 @@ import sys
 
 def main():
     """Run administrative tasks."""
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'all_about_drf_model_serializer.settings')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'deep_dive_drf_model_serializer_relations.settings')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
